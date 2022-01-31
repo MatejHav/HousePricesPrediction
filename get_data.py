@@ -22,11 +22,11 @@ def split_data(data):
 
 
 def correlation_matrix(train):
-    return train.corr()
+    return train.corr().apply(abs)
 
 
 def correlation_with_label(train, label):
-    return train.corrwith(label)
+    return train.corrwith(label).apply(abs)
 
 
 def plot_correlation_matrix(train):
@@ -43,7 +43,7 @@ def plot_correlation_with_result(train, label):
     plt.show()
 
 
-def pick_best_feature(train, label, remove_threshold=0.8):
+def pick_best_feature(train, label, remove_threshold=0.7):
     label_corr = correlation_with_label(train, label)
     inter_corr = correlation_matrix(train)
     selected_feature = label_corr.idxmax()
@@ -58,9 +58,11 @@ def pipeline(train, label, number_of_features):
     while len(features) < number_of_features:
         feat, train, label = pick_best_feature(train, label)
         features.append(feat)
-    return train_copy[features]
+    result = train_copy[features]
+    return result, features
 
 
 if __name__ == '__main__':
     train, test, train_label, test_label = split_data(get_data('data/train.csv'))
-    train = pipeline(train, train_label, 10)
+    #plot_correlation_with_result(train, train_label)
+    train, _ = pipeline(train, train_label, 10)
