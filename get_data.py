@@ -1,68 +1,50 @@
-import pandas as pd
 import numpy as np
-import matplotlib.pyplot as plt
-import seaborn as sn
+import pandas as pd
 
-from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import LabelEncoder, OneHotEncoder
-from sklearn.metrics import confusion_matrix
+from typing import *
 
+import torch
+from torch.utils.data import DataLoader
+from torch.utils.data.dataset import Dataset
 
-def get_data(file, cols=None):
-    if cols is None:
-        return pd.read_csv(file)
-    return pd.read_csv(file, usecols=cols)
+class HousePriceData(Dataset):
 
+    def __init__(self, normalize: bool, train=True):
+        self.train_data = pd.read_csv("./data/train.csv", index_col="Id")
+        self.test_data = pd.read_csv("./data/test.csv", index_col="Id")
+        self.data = pd.concat([self.train_data, self.test_data], axis=0)
+        self.labels = self.data["SalePrice"]
+        self.data = self.data.drop(columns=["SalePrice"])
+        self.data = pd.get_dummies(self.data)
+        self.data.fillna(method="bfill", inplace=True)
+        self.normalize = normalize
+        self.train = train
+        self.preprocess()
 
-# Returns train_Set, test_set, train_label, test_label
-def split_data(data):
-    train, test = train_test_split(data, test_size=0.2)
-    return train.loc[:, train.columns != 'SalePrice'], test.loc[:, test.columns != 'SalePrice'], train['SalePrice'], \
-           test['SalePrice']
+    def preprocess(self):
+        if self.normalize:
+            self.data = (self.data - self.data.mean()) / self.data.std()
 
+    def __len__(self):
+        if self.train:
+            return len(self.train_data)
+        return len(self.test_data)
 
-def correlation_matrix(train):
-    return train.corr().apply(abs)
+    def __getitem__(self, item):
+        data = self.data[:len(self.train_data)]
+        if not self.train:
+            data = self.data[len(self.train_data):]
+        row = data.iloc[item]
+        label = 0
+        if self.train:
+            label = self.labels.iloc[item] / 100_000
+        return data.index.values[item], torch.Tensor(row), torch.Tensor([label])
 
-
-def correlation_with_label(train, label):
-    return train.corrwith(label).apply(abs)
-
-
-def plot_correlation_matrix(train):
-    df_cm = correlation_matrix(train)
-    plt.figure(figsize=(10, 7))
-    sn.heatmap(df_cm)
-    plt.show()
-
-
-def plot_correlation_with_result(train, label):
-    df_cm = pd.DataFrame({'corr': correlation_with_label(train, label)})
-    plt.figure(figsize=(10, 7))
-    sn.heatmap(df_cm)
-    plt.show()
-
-
-def pick_best_feature(train, label, remove_threshold=0.7):
-    label_corr = correlation_with_label(train, label)
-    inter_corr = correlation_matrix(train)
-    selected_feature = label_corr.idxmax()
-    print(f'Selected {selected_feature} with {label_corr[selected_feature]} correlation score')
-    to_keep = inter_corr.index[inter_corr[selected_feature] <= remove_threshold].tolist()
-    return selected_feature, train[to_keep], label
-
-
-def pipeline(train, label, number_of_features):
-    train_copy = train.copy()
-    features = []
-    while len(features) < number_of_features:
-        feat, train, label = pick_best_feature(train, label)
-        features.append(feat)
-    result = train_copy[features]
-    return result, features
 
 
 if __name__ == '__main__':
-    train, test, train_label, test_label = split_data(get_data('data/train.csv'))
-    #plot_correlation_with_result(train, train_label)
-    train, _ = pipeline(train, train_label, 10)
+    house_data = HousePriceData(True, train=True)
+    dataloader = DataLoader(dataset=house_data, batch_size=64)
+    print(len(house_data))
+    for id, data, label in dataloader:
+        print(label)
