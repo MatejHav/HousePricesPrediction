@@ -97,7 +97,7 @@ def hyperparameter_tuning(model, parameters, normalize):
 
 def make_submission_torch(model, normalize):
     dataset = HousePriceData(normalize, False, False)
-    dataloader = DataLoader(dataset=dataset, batch_size=1, shuffle=True)
+    dataloader = DataLoader(dataset=dataset, batch_size=1, shuffle=False)
     result = pd.DataFrame(columns=["SalePrice"])
     model.eval()
     for id, data, _ in dataloader:
@@ -108,7 +108,7 @@ def make_submission_torch(model, normalize):
 
 def make_submission_sklearn(model, normalize):
     dataset = HousePriceData(normalize, False, False)
-    dataloader = DataLoader(dataset=dataset, batch_size=1, shuffle=True)
+    dataloader = DataLoader(dataset=dataset, batch_size=1, shuffle=False)
     result = pd.DataFrame(columns=["SalePrice"])
     for id, data, _ in dataloader:
         pred = model.predict(data)
@@ -122,11 +122,11 @@ if __name__ == '__main__':
     # make_submission_torch(model, normalize)
     # model, score = train_sklearn(normalize)
 
-    model = GradientBoostingRegressor()
+    model = GradientBoostingRegressor(random_state=42)
     parameters = {
         "loss": ["squared_error", "absolute_error", "huber"],
-        "learning_rate": [1e-4, 1e-3, 1e-2, 1e-1],
-        "n_estimators": [8, 32, 128, 256, 512]
+        "learning_rate": [1e-2, 1e-1, 0.2, 0.3],
+        "n_estimators": [256, 512, 600, 700]
     }
 
     model, score = hyperparameter_tuning(model, parameters, normalize)
@@ -134,11 +134,11 @@ if __name__ == '__main__':
 
     make_submission_sklearn(model, normalize)
 
-    model = AdaBoostRegressor()
+    model = AdaBoostRegressor(random_state=42)
     parameters = {
         "loss": ["linear", "square"],
-        "learning_rate": [1e-3, 1e-2, 1e-1, 1],
-        "n_estimators": [8, 16, 32, 64, 128, 256, 512]
+        "learning_rate": [1e-2, 1e-1, 1],
+        "n_estimators": [128, 256, 512, 600, 700]
     }
 
     model, score = hyperparameter_tuning(model, parameters, normalize)
@@ -146,11 +146,11 @@ if __name__ == '__main__':
 
     make_submission_sklearn(model, normalize)
 
-    model = RandomForestRegressor(n_jobs=-1)
+    model = RandomForestRegressor(n_jobs=-1, random_state=42)
     parameters = {
-        "min_samples_leaf": [3, 10, 15, 25, 50, 100],
-        "max_depth": [1, 5, 9, 15],
-        "n_estimators": [8, 32, 64, 128, 256]
+        "min_samples_leaf": [10, 15, 25, 50],
+        "max_depth": [9, 15, 20, 25],
+        "n_estimators": [40, 64, 100]
     }
 
     model, score = hyperparameter_tuning(model, parameters, normalize)
