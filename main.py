@@ -79,19 +79,8 @@ def train_sklearn(normalize):
         score = model.score(data, labels)
     return model, score
 
-def hyperparameter_tuning(normalize):
-    model = GradientBoostingRegressor()
-    parameters = {
-        "loss": ["squared_error", "absolute_error", "huber", "quantile"],
-        "learning_rate": [1e-6, 1e-5, 1e-4, 1e-3, 1e-2, 1e-1],
-        "n_estimators": [8, 16, 32, 64, 128, 256, 512]
-    }
-    # parameters = {
-    #     "loss": ["squared_error", "absolute_error", "huber", "quantile"],
-    #     "learning_rate": [0.01, 0.05, 0.1, 0.2, 0.3],
-    #     "n_estimators": [128, 256, 512]
-    # }
-    grid = GridSearchCV(estimator=model, param_grid=parameters, n_jobs=-1, verbose=2)
+def hyperparameter_tuning(model, parameters, normalize):
+    grid = GridSearchCV(estimator=model, param_grid=parameters, n_jobs=-1, verbose=1)
 
     dataset = HousePriceData(normalize=normalize, train=True, val=False, add_noise=False)
     dataloader = DataLoader(dataset=dataset, batch_size=len(dataset), shuffle=True)
@@ -99,7 +88,12 @@ def hyperparameter_tuning(normalize):
         labels = labels.view(len(labels))
         grid.fit(data, labels)
     print(f"Best params: {grid.best_params_}")
-    return grid.best_estimator_, grid.best_score_
+    dataset = HousePriceData(normalize, False, True)
+    val_dataloader = DataLoader(dataset=dataset, batch_size=len(dataset), shuffle=True)
+    for ids, data, labels in val_dataloader:
+        labels = labels.view(len(labels))
+        score = grid.best_estimator_.score(data, labels)
+    return grid.best_estimator_, score
 
 def make_submission_torch(model, normalize):
     dataset = HousePriceData(normalize, False, False)
@@ -119,7 +113,7 @@ def make_submission_sklearn(model, normalize):
     for id, data, _ in dataloader:
         pred = model.predict(data)
         result.loc[id.item()] = 10_000 * pred.item()
-    result.to_csv("submission.csv", index_label="Id")
+    result.to_csv(f"submission_{type(model).__name__}.csv", index_label="Id")
 
 
 if __name__ == '__main__':
@@ -127,6 +121,39 @@ if __name__ == '__main__':
     # model = train(50, 256, normalize)
     # make_submission_torch(model, normalize)
     # model, score = train_sklearn(normalize)
-    model, score = hyperparameter_tuning(normalize)
-    print(f"Score: {score}")
+
+    model = GradientBoostingRegressor()
+    parameters = {
+        "loss": ["squared_error", "absolute_error", "huber"],
+        "learning_rate": [1e-4, 1e-3, 1e-2, 1e-1],
+        "n_estimators": [8, 32, 128, 256, 512]
+    }
+
+    model, score = hyperparameter_tuning(model, parameters, normalize)
+    print(f"Gradient Boosting score: {score}")
+
+    make_submission_sklearn(model, normalize)
+
+    model = AdaBoostRegressor()
+    parameters = {
+        "loss": ["linear", "square"],
+        "learning_rate": [1e-3, 1e-2, 1e-1, 1],
+        "n_estimators": [8, 16, 32, 64, 128, 256, 512]
+    }
+
+    model, score = hyperparameter_tuning(model, parameters, normalize)
+    print(f"AdaBoost score: {score}")
+
+    make_submission_sklearn(model, normalize)
+
+    model = RandomForestRegressor(n_jobs=-1)
+    parameters = {
+        "min_samples_leaf": [3, 10, 15, 25, 50, 100],
+        "max_depth": [1, 5, 9, 15],
+        "n_estimators": [8, 32, 64, 128, 256]
+    }
+
+    model, score = hyperparameter_tuning(model, parameters, normalize)
+    print(f"Random Forest score: {score}")
+
     make_submission_sklearn(model, normalize)
