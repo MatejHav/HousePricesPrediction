@@ -6,6 +6,8 @@ import matplotlib.pyplot as plt
 from get_data import *
 from model import *
 from tqdm import tqdm
+from sklearn.ensemble import *
+from sklearn.model_selection import GridSearchCV
 
 
 def train(max_epochs, batch_size, normalize):
@@ -13,7 +15,8 @@ def train(max_epochs, batch_size, normalize):
     dataloader = DataLoader(dataset=dataset, batch_size=batch_size, shuffle=True)
     dataset = HousePriceData(normalize, False, True)
     val_dataloader = DataLoader(dataset=dataset, batch_size=batch_size, shuffle=True)
-    model = ANN(input_dim=266, hidden_layers=[64, 32, 16], output_dim=1)
+    # model = ANN(input_dim=266, hidden_layers=[64, 32, 16], output_dim=1)
+    model = ResidualANN(input_dim=266, hidden_layer=256, number_of_hidden=4, output_dim=1)
     optimizer = torch.optim.Adam(model.parameters(), weight_decay=1e-3)
     loss_function = nn.MSELoss()
 
@@ -48,7 +51,8 @@ def train(max_epochs, batch_size, normalize):
                 loss = loss_function(predictions, labels)
                 all_val_loss.append(loss.item())
 
-        bar.set_description(f"EPOCH: {epoch} | LAST TRAIN LOSS: {np.mean(all_train_loss):.3} | LAST VAL LOSS: {np.mean(all_val_loss):.3}")
+        bar.set_description(
+            f"EPOCH: {epoch} | LAST TRAIN LOSS: {np.mean(all_train_loss):.3} | LAST VAL LOSS: {np.mean(all_val_loss):.3}")
         train_loss.append(np.mean(all_train_loss))
         val_loss.append(np.mean(all_val_loss))
     plt.plot(train_loss, label='Train loss')
@@ -60,18 +64,69 @@ def train(max_epochs, batch_size, normalize):
     return model
 
 
-def make_submission(model, normalize):
+def train_sklearn(normalize):
+    # By using dataset length we load everything at one
+    dataset = HousePriceData(normalize=normalize, train=True, val=False, add_noise=False)
+    dataloader = DataLoader(dataset=dataset, batch_size=len(dataset), shuffle=True)
+    dataset = HousePriceData(normalize, False, True)
+    val_dataloader = DataLoader(dataset=dataset, batch_size=len(dataset), shuffle=True)
+    model = GradientBoostingRegressor()
+    for ids, data, labels in dataloader:
+        labels = labels.view(len(labels))
+        model.fit(data, labels)
+    for ids, data, labels in val_dataloader:
+        labels = labels.view(len(labels))
+        score = model.score(data, labels)
+    return model, score
+
+def hyperparameter_tuning(normalize):
+    model = GradientBoostingRegressor()
+    parameters = {
+        "loss": ["squared_error", "absolute_error", "huber", "quantile"],
+        "learning_rate": [1e-6, 1e-5, 1e-4, 1e-3, 1e-2, 1e-1],
+        "n_estimators": [8, 16, 32, 64, 128, 256, 512]
+    }
+    # parameters = {
+    #     "loss": ["squared_error", "absolute_error", "huber", "quantile"],
+    #     "learning_rate": [0.01, 0.05, 0.1, 0.2, 0.3],
+    #     "n_estimators": [128, 256, 512]
+    # }
+    grid = GridSearchCV(estimator=model, param_grid=parameters, n_jobs=-1, verbose=2)
+
+    dataset = HousePriceData(normalize=normalize, train=True, val=False, add_noise=False)
+    dataloader = DataLoader(dataset=dataset, batch_size=len(dataset), shuffle=True)
+    for ids, data, labels in dataloader:
+        labels = labels.view(len(labels))
+        grid.fit(data, labels)
+    print(f"Best params: {grid.best_params_}")
+    return grid.best_estimator_, grid.best_score_
+
+def make_submission_torch(model, normalize):
     dataset = HousePriceData(normalize, False, False)
     dataloader = DataLoader(dataset=dataset, batch_size=1, shuffle=True)
     result = pd.DataFrame(columns=["SalePrice"])
     model.eval()
     for id, data, _ in dataloader:
         pred = model(data)
-        result.loc[id.item()] = 1_000 * pred.item()
+        result.loc[id.item()] = 10_000 * pred.item()
+    result.to_csv("submission.csv", index_label="Id")
+
+
+def make_submission_sklearn(model, normalize):
+    dataset = HousePriceData(normalize, False, False)
+    dataloader = DataLoader(dataset=dataset, batch_size=1, shuffle=True)
+    result = pd.DataFrame(columns=["SalePrice"])
+    for id, data, _ in dataloader:
+        pred = model.predict(data)
+        result.loc[id.item()] = 10_000 * pred.item()
     result.to_csv("submission.csv", index_label="Id")
 
 
 if __name__ == '__main__':
     normalize = False
-    model = train(50, 256, normalize)
-    make_submission(model, normalize)
+    # model = train(50, 256, normalize)
+    # make_submission_torch(model, normalize)
+    # model, score = train_sklearn(normalize)
+    model, score = hyperparameter_tuning(normalize)
+    print(f"Score: {score}")
+    make_submission_sklearn(model, normalize)

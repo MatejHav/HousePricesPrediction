@@ -53,7 +53,7 @@ class HousePriceData(Dataset):
         row = data.iloc[item]
         label = 0
         if self.train or self.val:
-            label = self.labels.iloc[item] / 1_000
+            label = self.labels.iloc[item] / 10_000
         if self.add_noise:
             row = row * (1 + 0.03*np.random.randn(len(row)))
             label = label * (1 + 0.01*np.random.randn())
