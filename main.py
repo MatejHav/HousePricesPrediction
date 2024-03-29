@@ -8,6 +8,8 @@ from model import *
 from tqdm import tqdm
 from sklearn.ensemble import *
 from sklearn.model_selection import GridSearchCV
+from sklearn.linear_model import LassoCV
+from sklearn.kernel_ridge import KernelRidge
 
 
 def train(max_epochs, batch_size, normalize):
@@ -79,6 +81,7 @@ def train_sklearn(normalize):
         score = model.score(data, labels)
     return model, score
 
+
 def hyperparameter_tuning(model, parameters, normalize):
     grid = GridSearchCV(estimator=model, param_grid=parameters, n_jobs=-1, verbose=1)
 
@@ -95,6 +98,7 @@ def hyperparameter_tuning(model, parameters, normalize):
         score = grid.best_estimator_.score(data, labels)
     return grid.best_estimator_, score
 
+
 def make_submission_torch(model, normalize):
     dataset = HousePriceData(normalize, False, False)
     dataloader = DataLoader(dataset=dataset, batch_size=1, shuffle=False)
@@ -106,8 +110,8 @@ def make_submission_torch(model, normalize):
     result.to_csv("submission.csv", index_label="Id")
 
 
-def make_submission_sklearn(model, normalize):
-    dataset = HousePriceData(normalize, False, False)
+def make_submission_sklearn(model, normalize, pca=False, pca_var=0.99):
+    dataset = HousePriceData(normalize, False, False, pca=pca, pca_var=pca_var)
     dataloader = DataLoader(dataset=dataset, batch_size=1, shuffle=False)
     result = pd.DataFrame(columns=["SalePrice"])
     for id, data, _ in dataloader:
@@ -116,44 +120,85 @@ def make_submission_sklearn(model, normalize):
     result.to_csv(f"submission_{type(model).__name__}.csv", index_label="Id")
 
 
+def lasso_regression(folds=10, pca=True, pca_var=0.99, normalize=False):
+    dataset_train = HousePriceData(normalize, train=True, val=False, pca=pca, pca_var=pca_var)
+    dataset_val = HousePriceData(normalize, train=False, val=True, pca=pca, pca_var=pca_var)
+    dataset_comb = torch.utils.data.ConcatDataset([dataset_train, dataset_val])
+
+    model = LassoCV(cv=folds)
+
+    dataloader = DataLoader(dataset=dataset_comb, batch_size=len(dataset_comb), shuffle=True)
+    for ids, data, labels in dataloader:
+        labels = labels.view(len(labels))
+        model.fit(data, labels)
+
+    return model
+
+
+def kernel_regression(folds=10, pca=True, pca_var=0.99, normalize=False):
+    grid = GridSearchCV(KernelRidge(kernel="rbf", gamma=0.1),
+                        param_grid={"alpha": [1e-3, 1e-2, 1e-1, 1., 5., 10.],
+                                    "gamma": np.logspace(-2, 2, 5)},
+                        refit=True, cv=folds, n_jobs=-1, verbose=1)
+
+    dataset_train = HousePriceData(normalize, train=True, val=False, pca=pca, pca_var=pca_var)
+    dataset_val = HousePriceData(normalize, train=False, val=True, pca=pca, pca_var=pca_var)
+    dataset_comb = torch.utils.data.ConcatDataset([dataset_train, dataset_val])
+
+    dataloader = DataLoader(dataset=dataset_comb, batch_size=len(dataset_comb), shuffle=True)
+    for ids, data, labels in dataloader:
+        labels = labels.view(len(labels))
+        grid.fit(data, labels)
+
+    return grid.best_estimator_
+
+
 if __name__ == '__main__':
     normalize = False
+    pca = True
+    # pca_var = 0.99    # 0 < x < 1. float sets minimum variance captured by vars
+    pca_var = 'mle'     # mle setting uses some MLE method to guess best dimension to use (~227 vars)
+
+    # model = lasso_regression(pca=pca, pca_var=pca_var, normalize=normalize)
+    model = kernel_regression(pca=pca, pca_var=pca_var, normalize=normalize)
+    make_submission_sklearn(model, normalize, pca, pca_var)
+
     # model = train(50, 256, normalize)
     # make_submission_torch(model, normalize)
     # model, score = train_sklearn(normalize)
 
-    model = GradientBoostingRegressor(random_state=42)
-    parameters = {
-        "loss": ["squared_error", "absolute_error", "huber"],
-        "learning_rate": [1e-2, 1e-1, 0.2, 0.3],
-        "n_estimators": [256, 512, 600, 700]
-    }
-
-    model, score = hyperparameter_tuning(model, parameters, normalize)
-    print(f"Gradient Boosting score: {score}")
-
-    make_submission_sklearn(model, normalize)
-
-    model = AdaBoostRegressor(random_state=42)
-    parameters = {
-        "loss": ["linear", "square"],
-        "learning_rate": [1e-2, 1e-1, 1],
-        "n_estimators": [128, 256, 512, 600, 700]
-    }
-
-    model, score = hyperparameter_tuning(model, parameters, normalize)
-    print(f"AdaBoost score: {score}")
-
-    make_submission_sklearn(model, normalize)
-
-    model = RandomForestRegressor(n_jobs=-1, random_state=42)
-    parameters = {
-        "min_samples_leaf": [10, 15, 25, 50],
-        "max_depth": [9, 15, 20, 25],
-        "n_estimators": [40, 64, 100]
-    }
-
-    model, score = hyperparameter_tuning(model, parameters, normalize)
-    print(f"Random Forest score: {score}")
-
-    make_submission_sklearn(model, normalize)
+    # model = GradientBoostingRegressor(random_state=42)
+    # parameters = {
+    #     "loss": ["squared_error", "absolute_error", "huber"],
+    #     "learning_rate": [1e-2, 1e-1, 0.2, 0.3],
+    #     "n_estimators": [256, 512, 600, 700]
+    # }
+    #
+    # model, score = hyperparameter_tuning(model, parameters, normalize)
+    # print(f"Gradient Boosting score: {score}")
+    #
+    # make_submission_sklearn(model, normalize)
+    #
+    # model = AdaBoostRegressor(random_state=42)
+    # parameters = {
+    #     "loss": ["linear", "square"],
+    #     "learning_rate": [1e-2, 1e-1, 1],
+    #     "n_estimators": [128, 256, 512, 600, 700]
+    # }
+    #
+    # model, score = hyperparameter_tuning(model, parameters, normalize)
+    # print(f"AdaBoost score: {score}")
+    #
+    # make_submission_sklearn(model, normalize)
+    #
+    # model = RandomForestRegressor(n_jobs=-1, random_state=42)
+    # parameters = {
+    #     "min_samples_leaf": [10, 15, 25, 50],
+    #     "max_depth": [9, 15, 20, 25],
+    #     "n_estimators": [40, 64, 100]
+    # }
+    #
+    # model, score = hyperparameter_tuning(model, parameters, normalize)
+    # print(f"Random Forest score: {score}")
+    #
+    # make_submission_sklearn(model, normalize)
