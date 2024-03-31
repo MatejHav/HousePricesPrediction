@@ -10,6 +10,7 @@ from sklearn.ensemble import *
 from sklearn.model_selection import GridSearchCV
 from sklearn.linear_model import LassoCV
 from sklearn.kernel_ridge import KernelRidge
+from sklearn.svm import SVR
 
 
 def train(max_epochs, batch_size, normalize):
@@ -83,7 +84,7 @@ def train_sklearn(normalize):
 
 
 def hyperparameter_tuning(model, parameters, normalize):
-    grid = GridSearchCV(estimator=model, param_grid=parameters, n_jobs=-1, verbose=1)
+    grid = GridSearchCV(estimator=model, param_grid=parameters, n_jobs=-1, verbose=2)
 
     dataset = HousePriceData(normalize=normalize, train=True, val=False, add_noise=False)
     dataloader = DataLoader(dataset=dataset, batch_size=len(dataset), shuffle=True)
@@ -111,6 +112,14 @@ def make_submission_torch(model, normalize):
 
 
 def make_submission_sklearn(model, normalize, pca=False, pca_var=0.99):
+    dataset_train = HousePriceData(normalize, train=True, val=False, pca=pca, pca_var=pca_var)
+    dataset_val = HousePriceData(normalize, train=False, val=True, pca=pca, pca_var=pca_var)
+    dataset_comb = torch.utils.data.ConcatDataset([dataset_train, dataset_val])
+    dataloader = DataLoader(dataset=dataset_comb, batch_size=len(dataset_comb), shuffle=True)
+    for ids, data, labels in dataloader:
+        labels = labels.view(len(labels))
+        model.fit(data, labels)
+
     dataset = HousePriceData(normalize, False, False, pca=pca, pca_var=pca_var)
     dataloader = DataLoader(dataset=dataset, batch_size=1, shuffle=False)
     result = pd.DataFrame(columns=["SalePrice"])
@@ -154,24 +163,34 @@ def kernel_regression(folds=10, pca=True, pca_var=0.99, normalize=False):
 
 
 if __name__ == '__main__':
-    normalize = False
+    normalize = True
     pca = True
     # pca_var = 0.99    # 0 < x < 1. float sets minimum variance captured by vars
     pca_var = 'mle'     # mle setting uses some MLE method to guess best dimension to use (~227 vars)
 
     # model = lasso_regression(pca=pca, pca_var=pca_var, normalize=normalize)
-    model = kernel_regression(pca=pca, pca_var=pca_var, normalize=normalize)
-    make_submission_sklearn(model, normalize, pca, pca_var)
+    # model = kernel_regression(pca=pca, pca_var=pca_var, normalize=normalize)
+    # make_submission_sklearn(model, normalize, pca, pca_var)
 
     # model = train(50, 256, normalize)
     # make_submission_torch(model, normalize)
     # model, score = train_sklearn(normalize)
 
     # model = GradientBoostingRegressor(random_state=42)
+    # # parameters = {
+    # #     "loss": ["squared_error", "absolute_error", "huber"],
+    # #     "learning_rate": [1e-2, 1e-1, 0.2, 0.3],
+    # #     "n_estimators": [256, 512, 600, 700]
+    # # }
+    # # parameters = {
+    # #     "loss": ["squared_error"],
+    # #     "learning_rate": [0.15, 0.2, 0.25],
+    # #     "n_estimators": [550, 600, 650]
+    # # }
     # parameters = {
-    #     "loss": ["squared_error", "absolute_error", "huber"],
-    #     "learning_rate": [1e-2, 1e-1, 0.2, 0.3],
-    #     "n_estimators": [256, 512, 600, 700]
+    #     "loss": ["squared_error"],
+    #     "learning_rate": [0.12, 0.15, 0.17],
+    #     "n_estimators": [630, 650, 670]
     # }
     #
     # model, score = hyperparameter_tuning(model, parameters, normalize)
@@ -180,10 +199,20 @@ if __name__ == '__main__':
     # make_submission_sklearn(model, normalize)
     #
     # model = AdaBoostRegressor(random_state=42)
+    # # parameters = {
+    # #     "loss": ["linear", "square"],
+    # #     "learning_rate": [1e-2, 1e-1, 1],
+    # #     "n_estimators": [128, 256, 512, 600, 700]
+    # # }
+    # # parameters = {
+    # #     "loss": ["linear"],
+    # #     "learning_rate": [0.05, 1e-1, 0.15],
+    # #     "n_estimators": [200, 256, 300]
+    # # }
     # parameters = {
-    #     "loss": ["linear", "square"],
-    #     "learning_rate": [1e-2, 1e-1, 1],
-    #     "n_estimators": [128, 256, 512, 600, 700]
+    #     "loss": ["linear"],
+    #     "learning_rate": [0.12, 0.15, 0.17],
+    #     "n_estimators": [170, 200, 230]
     # }
     #
     # model, score = hyperparameter_tuning(model, parameters, normalize)
@@ -193,12 +222,22 @@ if __name__ == '__main__':
     #
     # model = RandomForestRegressor(n_jobs=-1, random_state=42)
     # parameters = {
-    #     "min_samples_leaf": [10, 15, 25, 50],
-    #     "max_depth": [9, 15, 20, 25],
-    #     "n_estimators": [40, 64, 100]
+    #     "min_samples_leaf": [2, 5, 7],
+    #     "max_depth": [17],
+    #     "n_estimators": [40, 50, 60]
     # }
     #
     # model, score = hyperparameter_tuning(model, parameters, normalize)
     # print(f"Random Forest score: {score}")
-    #
-    # make_submission_sklearn(model, normalize)
+
+    model = SVR(max_iter=20_000)
+    parameters = {
+        "kernel": ["rbf"],
+        "degree": [1],
+        "C": [45, 46, 47, 48, 49, 50]
+    }
+
+    model, score = hyperparameter_tuning(model, parameters, normalize)
+    print(f"SVR score: {score}")
+
+    make_submission_sklearn(model, normalize)
